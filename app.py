@@ -5,7 +5,7 @@ import json
 from datetime import datetime
 import pandas as pd
 import glob
-#from sqlalchemy import create_engine
+from sqlalchemy import create_engine
 
 # Load the dot_env env
 load_dotenv()
@@ -13,7 +13,7 @@ load_dotenv()
 # Assign Env variables
 api_key = os.getenv("API_KEY") 
 api_base_url = os.getenv("API_BASE_URL") 
-# db_url = os.getenv("DATABASE_URL")  # Add your database URL in the .env file
+db_url = os.getenv("DATABASE_URL")  # Use the DATABASE_URL from the environment variables
 
 # Create base url
 base_url = f"https://api.openaq.org/v3/locations"
@@ -38,11 +38,15 @@ def get_location_aq(location_id):
     response = requests.get(base_url, headers=headers)
     if response.status_code == 200:
         json_data = response.json()
+        # Print JSON data in a readable format
+        print(json.dumps(json_data, indent=4))
         # Save JSON data to a file
         with open(f"location_{location_id}_{current_datetime.strftime('%Y%m%d%H%M%S')}.json", "w") as outfile:
             json.dump(json_data, outfile, indent=4)
+        return json_data
     else:
         print(f"Error: {response.status_code}")
+        return None
 
 # Get the location data
 location_id = 288
@@ -76,13 +80,31 @@ print(df_meta.head())
 print("First few rows of the DataFrame (results):")
 print(df_results.head())
 
+# Flatten nested structures in the DataFrame
+def flatten_column(df, column):
+    flattened_df = pd.json_normalize(df[column])
+    flattened_df.columns = [f"{column}_{subcolumn}" for subcolumn in flattened_df.columns]
+    df = df.drop(columns=[column]).join(flattened_df)
+    return df
+
+# Flatten the 'instruments', 'sensors', 'licenses', and 'bounds' columns
+df_cleaned = df_results.copy()
+for column in ['instruments', 'sensors', 'licenses', 'bounds']:
+    if column in df_cleaned.columns:
+        df_cleaned = flatten_column(df_cleaned, column)
+
+# Convert any remaining complex structures into JSON strings
+for column in df_cleaned.columns:
+    if isinstance(df_cleaned[column].iloc[0], (dict, list)):
+        df_cleaned[column] = df_cleaned[column].apply(json.dumps)
+
 # Perform cleaning operations (example: drop columns with all NaN values)
-df_cleaned = df_results.dropna(axis=1, how='all')
+df_cleaned = df_cleaned.dropna(axis=1, how='all')
 
 # Print the cleaned DataFrame
 print("Cleaned DataFrame:")
 print(df_cleaned.head())
 
 # Insert the cleaned DataFrame into a database
-#engine = create_engine(db_url)
-#df_cleaned.to_sql('air_quality_data', engine, if_exists='replace', index=False)
+engine = create_engine(db_url)
+df_cleaned.to_sql('air_quality_data', engine, if_exists='append', index=False)
