@@ -58,6 +58,10 @@ with open(latest_file, 'r') as f:
     df_meta = pd.json_normalize(json_data)
     df_results = pd.json_normalize(json_data['results'])
 
+# Flatten the DataFrame
+if 'results' in df_meta.columns:
+    df_meta = df_meta.drop(columns=['results'])
+
 # Print column names after flattening
 print('Column names after flattening (meta):')
 print(df_meta.columns)
